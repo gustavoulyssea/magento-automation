@@ -29,7 +29,6 @@ APACHE_LOG_DIR="/var/log/apache2"
 
 #### ASK BEFORE PROCEED
 
-echo "Please check configuration before proceeding:"
 echo "Domain:        ${DOMAIN}"
 echo "Database name: ${DB_USER}"
 echo "Database user: ${DB_NAME}"
@@ -38,6 +37,16 @@ echo ""
 echo "Automatically install services: ${INSTALL_SERVICES}"
 echo ""
 echo "Automatically create SSH keys pair: ${CREATE_SSH_KEYS}"
+
+echo "Please check configuration above before proceeding."
+echo "Are you sure you want to proceed ? Please answer YES with capital letters."
+
+read PROCEED
+
+if [ "$PROCEED" != YES ]
+then
+  exit 0
+fi
 
 exit 0
 
