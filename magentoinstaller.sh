@@ -28,7 +28,8 @@ UNIX_USER=$(logname)
 APACHE_LOG_DIR="/var/log/apache2"
 
 #### ASK BEFORE PROCEED
-
+echo ""
+echo ""
 echo "Domain:        ${DOMAIN}"
 echo "Database name: ${DB_USER}"
 echo "Database user: ${DB_NAME}"
@@ -37,15 +38,18 @@ echo ""
 echo "Automatically install services: ${INSTALL_SERVICES}"
 echo ""
 echo "Automatically create SSH keys pair: ${CREATE_SSH_KEYS}"
-
+echo ""
 echo "Please check configuration above before proceeding."
-echo "Are you sure you want to proceed ? Please answer YES with capital letters."
-
-read PROCEED
+echo ""
+read -p "Are you sure you want to proceed ? Please answer YES with capital letters: " PROCEED
 
 if [ "$PROCEED" != YES ]
 then
   exit 0
+else
+  echo ""
+  echo "Starting..."
+  echo ""
 fi
 
 exit 0
