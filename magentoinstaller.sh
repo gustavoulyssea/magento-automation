@@ -5,16 +5,27 @@
 ######################################
 ## LOCAL DOMAIN NAME
 DOMAIN="magento.localhost"
+
 ## MYSQL DATABASE
 DB_NAME="magento"
+
 ## MYSQL USER
 DB_USER="magento"
+
 ## EXISTING DATABASE DUMP FILE
 DB_DUMP_FILENAME="magento.sql"
+
+## GIT REPOSITORY ADDRESS
+GIT_REPOSITORY_URL="git@github.com:vendor/repository"
+
+## BASE SYSTEM DIRECTORY WHERE VIRTUAL-HOST FILES ARE STORED - IN CASE OF DOUBT DO NOT MAKE CHANGES
+WWW_BASEDIR="/var/www"
+
 ## SHOULD LINUX SERVICES (apache, mysql, php, elasticsearch) BE AUTOMATIC INSTALLED ? (answer no if already installed)
-INSTALL_SERVICES="yes"
+INSTALL_SERVICES="no"
+
 ## SHOULD SSH KEYS BE CREATED TO THE CURRENT USER ? (answer no if you have already created id_rsa / ida_rsa.pub pair)
-CREATE_SSH_KEYS="no"
+CREATE_SSH_KEYS="yes"
 ######################################
 CURRENT_USER=$(whoami)
 if [ "$CURRENT_USER" != "root" ]
@@ -22,10 +33,16 @@ if [ "$CURRENT_USER" != "root" ]
        echo "Please run as root"
        exit 1
 fi
-DIRECTORY=$(pwd)
+CURRENT_DIRECTORY=$(pwd)
 DB_PASS=$(echo $RANDOM | md5sum | head -c 20; echo)
 UNIX_USER=$(logname)
+IFS='/' read -r -a array <<< "$string"
+REPOSITORY_NAME=${array[1]}
+DIRECTORY="${WWW_BASEDIR}/${REPOSITORY_NAME}"
+
 APACHE_LOG_DIR="/var/log/apache2"
+
+## Validation
 
 #### ASK BEFORE PROCEED
 echo ""
@@ -41,6 +58,11 @@ echo "Automatically create SSH keys pair: ${CREATE_SSH_KEYS}"
 echo ""
 echo "Please check configuration above before proceeding."
 echo ""
+echo "Attention: *** This script was created for Ubuntu 20.04."
+echo "               We cannot guarantee that it will work on other distributions."
+echo ""
+echo "           *** If you set CREATE_SSH_KEYS to YES existing id_rsa keys pair will be overwritten."
+echo ""
 read -p "Are you sure you want to proceed ? Please answer YES with capital letters: " PROCEED
 
 if [ "$PROCEED" != YES ]
@@ -52,12 +74,11 @@ else
   echo ""
 fi
 
-exit 0
-
-
-
 if [ "$INSTALL_SERVICES" == "yes" ]
 then
+  echo "Add ppa:ondrej/php to apt"
+  apt -y install software-properties-common
+  add-apt-repository -y ppa:ondrej/php
   echo "Updating apt-get database..."
   apt-get update
   echo "Install apache, mysql, git"
@@ -85,16 +106,46 @@ else
   sleep 1
 fi
 
+if [ "$CREATE_SSH_KEYS" == "yes" ]
+then
+  echo ""
+  echo "Creating ssh keys for user ${UNIX_USER}..."
+  sudo -H -u "${UNIX_USER}" bash -c 'ssh-keygen -f ~/.ssh/id_rsa -P ""'
+  ssh-add -D
+  ssh-add
+  echo ""
+  echo "Please copy the following text (your public key) to your git provider configuration (do not include ---- lines)"
+  echo "--------------------------------------------------------------------------"
+  sudo -H -u "${UNIX_USER}" bash -c 'cat ~/.ssh/id_rsa.pub'
+  echo "--------------------------------------------------------------------------"
+  read -p "After copying the key please press enter to continue." LALA
+fi
+
+
+
+echo ""
 echo "Creating database ${DB_NAME}"
 mysql -e"CREATE DATABASE ${DB_NAME};"
+echo ""
 echo "Create user '${DB_USER}'@'localhost'"
 mysql -e"CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}'"
+echo ""
 echo "Granting privileges"
-mysql -e"GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost' WITH GRANT PRIVILEGES;FLUSH PRIVILEGES;"
+mysql -e"GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;"
 
-
+exit 0
+echo ""
 echo "Importing database from dump..."
 mysql ${DB_NAME} < ${DB_DUMP_FILENAME}
+
+
+echo "cloning git..."
+
+
+
+echo "Downloading composer.phar"
+wget https://github.com/gustavoulyssea/magento-automation/raw/master/composer.phar
+
 
 echo "Create apache virtualhost...."
 VIRTUALHOST="<VirtualHost *:80>
@@ -103,7 +154,7 @@ VIRTUALHOST="<VirtualHost *:80>
         ServerAdmin webmaster@localhost
         DocumentRoot ${DIRECTORY}
 
-<Directory "${DIRECTORY}">
+<Directory ""${DIRECTORY}"">
     Options Indexes MultiViews FollowSymLinks
     AllowOverride All
     Require all granted
@@ -121,8 +172,6 @@ service apache2 restart
 echo "Installing composer dependencies..."
 php7.4 composer.phar install
 echo "Setting env.php directives..."
-bin/magento setup:config:set --db-user="${DB_USER}" --db-password="${DB_PASS}" --db-name="${DB_NAME}"
-
 
 echo "<?php
 return [
@@ -151,9 +200,9 @@ return [
         'connection' => [
             'indexer' => [
                 'host' => 'localhost',
-                'dbname' => 'cancaonova',
-                'username' => 'camarao',
-                'password' => 'praialinha',
+                'dbname' => '${DB_NAME}',
+                'username' => '${DB_USER}',
+                'password' => '${DB_PASS}',
                 'active' => '1',
                 'persistent' => null,
                 'model' => 'mysql4',
@@ -162,9 +211,9 @@ return [
             ],
             'default' => [
                 'host' => 'localhost',
-                'dbname' => 'cancaonova',
-                'username' => 'camarao',
-                'password' => 'praialinha',
+                'dbname' => '${DB_NAME}',
+                'username' => '${DB_USER}',
+                'password' => '${DB_PASS}',
                 'active' => '1',
                 'driver_options' => [
                     1014 => false
