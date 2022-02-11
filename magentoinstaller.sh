@@ -4,45 +4,55 @@
 ## Please set the following variables
 ######################################
 ## LOCAL DOMAIN NAME
-DOMAIN="magento.localhost"
+DOMAIN="cancaonova.localhost"
 
 ## MYSQL DATABASE
-DB_NAME="magento"
+DB_NAME="cancaonova"
 
 ## MYSQL USER
-DB_USER="magento"
+DB_USER="cancaonova"
 
-## EXISTING DATABASE DUMP FILE
-DB_DUMP_FILENAME="magento.sql"
+## EXISTING DATABASE DUMP FILE - PLEASE ENTER THE FULL PATH
+DB_DUMP_FILENAME="/root/cancaonova_empty.sql"
 
-## GIT REPOSITORY ADDRESS
-GIT_REPOSITORY_URL="git@github.com:vendor/repository"
+## GIT REPOSITORY ADDRESS ** Please do not add .git at the end of the line
+GIT_REPOSITORY_URL="git@bitbucket.org:trezoteam/cancao-nova-m2-cloud-integration"
 
 ## BASE SYSTEM DIRECTORY WHERE VIRTUAL-HOST FILES ARE STORED - IN CASE OF DOUBT DO NOT MAKE CHANGES
 WWW_BASEDIR="/var/www"
 
 ## SHOULD LINUX SERVICES (apache, mysql, php, elasticsearch) BE AUTOMATIC INSTALLED ? (answer no if already installed)
-INSTALL_SERVICES="no"
+INSTALL_SERVICES="yes"
 
 ## SHOULD SSH KEYS BE CREATED TO THE CURRENT USER ? (answer no if you have already created id_rsa / ida_rsa.pub pair)
 CREATE_SSH_KEYS="yes"
+## PHP Version - IN CASE OF DOUBT DO NOT MAKE CHANGES
+PHP_VERSION="7.4"
+
 ######################################
 CURRENT_USER=$(whoami)
 if [ "$CURRENT_USER" != "root" ]
   then
-       echo "Please run as root"
+       echo "This script must be run as root"
        exit 1
 fi
 CURRENT_DIRECTORY=$(pwd)
 DB_PASS=$(echo $RANDOM | md5sum | head -c 20; echo)
 UNIX_USER=$(logname)
-IFS='/' read -r -a array <<< "$string"
+IFS='/' read -r -a array <<< "$GIT_REPOSITORY_URL"
 REPOSITORY_NAME=${array[1]}
 DIRECTORY="${WWW_BASEDIR}/${REPOSITORY_NAME}"
 
 APACHE_LOG_DIR="/var/log/apache2"
 
-## Validation
+#### Validation
+if [ ! -f "$DB_DUMP_FILENAME" ]
+then
+  echo "Error - DB dump file not found. Please check the specified full path."
+  exit 1
+else
+  echo "DB dump file is ready!"
+fi
 
 #### ASK BEFORE PROCEED
 echo ""
@@ -51,6 +61,8 @@ echo "Domain:        ${DOMAIN}"
 echo "Database name: ${DB_USER}"
 echo "Database user: ${DB_NAME}"
 echo "DB Dump file:  ${DB_DUMP_FILENAME}"
+echo "Git repository:${GIT_REPOSITORY_URL}"
+echo "WWW directory: ${WWW_BASEDIR}"
 echo ""
 echo "Automatically install services: ${INSTALL_SERVICES}"
 echo ""
@@ -110,6 +122,7 @@ if [ "$CREATE_SSH_KEYS" == "yes" ]
 then
   echo ""
   echo "Creating ssh keys for user ${UNIX_USER}..."
+  eval `ssh-agent -s`
   sudo -H -u "${UNIX_USER}" bash -c 'ssh-keygen -f ~/.ssh/id_rsa -P ""'
   ssh-add -D
   ssh-add
@@ -133,19 +146,19 @@ echo ""
 echo "Granting privileges"
 mysql -e"GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;"
 
-exit 0
+
 echo ""
 echo "Importing database from dump..."
 mysql ${DB_NAME} < ${DB_DUMP_FILENAME}
 
-
-echo "cloning git..."
-
-
+cd $WWW_BASEDIR
 
 echo "Downloading composer.phar"
 wget https://github.com/gustavoulyssea/magento-automation/raw/master/composer.phar
-
+echo "cloning git..."
+git clone $GIT_REPOSITORY_URL
+cd "${DIRECTORY}" || exit 1
+php$PHP_VERSION composer.phat install
 
 echo "Create apache virtualhost...."
 VIRTUALHOST="<VirtualHost *:80>
@@ -165,7 +178,7 @@ VIRTUALHOST="<VirtualHost *:80>
 
 </VirtualHost>"
 ## Use db name as virtualhost filename
-echo $VIRTUALHOST > /etc/apache2/sites-available/${DB_NAME}.conf
+echo "$VIRTUALHOST" > /etc/apache2/sites-available/${DB_NAME}.conf
 ln -s /etc/apache2/sites-available/${DB_NAME}.conf /etc/apache2/sites-enabled/${DB_NAME}.conf
 service apache2 restart
 
