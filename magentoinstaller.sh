@@ -1,22 +1,52 @@
 #!/bin/bash
 
+## @author Gustavo Ulyssea - gustavo.ulyssea@gmail.com
+## @copyright Copyright (c) 2020-2022 GumNet (https://gum.net.br)
+## @package Magento 2 automagic installation
+## All rights reserved.
+##
+## Redistribution and use in source and binary forms, with or without
+## modification, are permitted provided that the following conditions
+## are met:
+## 1. Redistributions of source code must retain the above copyright
+##    notice, this list of conditions and the following disclaimer.
+## 2. Redistributions in binary form must reproduce the above copyright
+##    notice, this list of conditions and the following disclaimer in the
+##    documentation and/or other materials provided with the distribution.
+##
+## THIS SOFTWARE IS PROVIDED BY GUM Net (https://gum.net.br). AND CONTRIBUTORS
+## ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+## TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+## PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
+## BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+## CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+## SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+## INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+## CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+## ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+## POSSIBILITY OF SUCH DAMAGE.
+ 
+######################################
+## ATTENTION THIS SCRIPT MUST BE RUN AS ROOT
+######################################
+
 ######################################
 ## Please set the following variables
 ######################################
 ## LOCAL DOMAIN NAME
-DOMAIN="cancaonova.localhost"
+DOMAIN="magento.localhost"
 
 ## MYSQL DATABASE
-DB_NAME="cancaonova"
+DB_NAME="magento"
 
 ## MYSQL USER
-DB_USER="cancaonova"
+DB_USER="magento"
 
 ## EXISTING DATABASE DUMP FILE - PLEASE ENTER THE FULL PATH
-DB_DUMP_FILENAME="/root/cancaonova_empty.sql"
+DB_DUMP_FILENAME="/root/magento.sql"
 
 ## GIT REPOSITORY ADDRESS ** Please do not add .git at the end of the line
-GIT_REPOSITORY_URL="git@bitbucket.org:trezoteam/cancao-nova-m2-cloud-integration"
+GIT_REPOSITORY_URL="git@bitbucket.org:vendor/repository"
 
 ## BASE SYSTEM DIRECTORY WHERE VIRTUAL-HOST FILES ARE STORED - IN CASE OF DOUBT DO NOT MAKE CHANGES
 WWW_BASEDIR="/var/www"
@@ -28,8 +58,9 @@ INSTALL_SERVICES="yes"
 CREATE_SSH_KEYS="yes"
 ## PHP Version - IN CASE OF DOUBT DO NOT MAKE CHANGES
 PHP_VERSION="7.4"
-
 ######################################
+
+## Validate if user is root - user *MUST* be root - sudo is n00b
 CURRENT_USER=$(whoami)
 if [ "$CURRENT_USER" != "root" ]
   then
@@ -113,6 +144,17 @@ then
   curl -sS https://accounts.magento.cloud/cli/installer | php
   echo "Enabling mod_rewrite..."
   a2enmod rewrite
+  echo "Installing Elasticsearch..."
+  apt-get -y install gnupg
+  wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | apt-key add -
+  apt-get -y install apt-transport-https
+  echo "deb https://artifacts.elastic.co/packages/oss-6.x/apt stable main" | sudo tee  /etc/apt/sources.list.d/elastic-6.x.list
+  apt-get update
+  apt-get -y install openjdk-11-jdk
+  apt-get -y install elasticsearch-oss
+  sed -i 's/-Xms2g/-Xms512m/g' /etc/elasticsearch/jvm.options
+  sed -i 's/-Xmx2g/-Xmx512m/g' /etc/elasticsearch/jvm.options
+  service elasticsearch restart
 else
   echo "Assuming apache, mysql, php7.4-fpm, elasticsearch are already installed."
   sleep 1
@@ -141,24 +183,49 @@ echo "Creating database ${DB_NAME}"
 mysql -e"CREATE DATABASE ${DB_NAME};"
 echo ""
 echo "Create user '${DB_USER}'@'localhost'"
-mysql -e"CREATE USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}'"
+mysql -e"CREATE USER '${DB_USER}'@'localhost' IDENTIFIED WITH mysql_native_password BY '${DB_PASS}'"
 echo ""
 echo "Granting privileges"
-mysql -e"GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost' WITH GRANT OPTION;FLUSH PRIVILEGES;"
+mysql -e"GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';FLUSH PRIVILEGES;"
+echo "
 
+log_bin_trust_function_creators = 1
+" >> /etc/mysql/mysql.conf.d/mysqld.cnf
+service mysql restart
 
 echo ""
 echo "Importing database from dump..."
 mysql ${DB_NAME} < ${DB_DUMP_FILENAME}
 
-cd $WWW_BASEDIR
+echo "Entering www basedir..."
+cd "$WWW_BASEDIR" || exit 1
+
+echo "cloning git..."
+IFS='@' read -r -a arraynew <<< "${array[0]}"
+IFS=':' read -r -a arraytwo <<< "${arraynew[1]}"
+GIT_DOMAIN=${arraytwo[0]}
+
+ssh-keyscan "${GIT_DOMAIN}" >> ~/.ssh/known_hosts
+
+if ! git clone $GIT_REPOSITORY_URL
+then
+  echo "Error cloning git."
+  exit 1
+fi
+cd "${DIRECTORY}" || exit 1
 
 echo "Downloading composer.phar"
 wget https://github.com/gustavoulyssea/magento-automation/raw/master/composer.phar
-echo "cloning git..."
-git clone $GIT_REPOSITORY_URL
-cd "${DIRECTORY}" || exit 1
-php$PHP_VERSION composer.phat install
+php7.4 composer.phar global require hirak/prestissimo
+
+echo "Entering magento installation homedir..."
+cd "$DIRECTORY" || exit 1
+echo "Runnning php composer.phar install..."
+if ! php$PHP_VERSION composer.phar install
+then
+  "Error running php composer.phar install"
+  exit 1
+fi
 
 echo "Create apache virtualhost...."
 VIRTUALHOST="<VirtualHost *:80>
@@ -173,17 +240,16 @@ VIRTUALHOST="<VirtualHost *:80>
     Require all granted
 </Directory>
 
-        ErrorLog ${APACHE_LOG_DIR}/${DIRECTORY}-error.log
-        CustomLog ${APACHE_LOG_DIR}/${DIRECTORY}-access.log combined
+        ErrorLog ${APACHE_LOG_DIR}/${REPOSITORY_NAME}-error.log
+        CustomLog ${APACHE_LOG_DIR}/${REPOSITORY_NAME}-access.log combined
 
 </VirtualHost>"
 ## Use db name as virtualhost filename
 echo "$VIRTUALHOST" > /etc/apache2/sites-available/${DB_NAME}.conf
 ln -s /etc/apache2/sites-available/${DB_NAME}.conf /etc/apache2/sites-enabled/${DB_NAME}.conf
+echo "Restarting apache..."
 service apache2 restart
 
-echo "Installing composer dependencies..."
-php7.4 composer.phar install
 echo "Setting env.php directives..."
 
 echo "<?php
@@ -279,8 +345,6 @@ return [
 ];" > app/etc/env.php
 
 
-
-
 echo "Setting magento developer mode..."
 bin/magento deploy:mode:set developer
 echo "Running bin/magento setup:upgrade ..."
@@ -309,3 +373,5 @@ echo "rm -rf var/di var/generation var/generated/* var/cache/* var/log/* var/pag
       chmod -R ugo+rw view_preprocessed
       find . -type d -exec chmod ugo+x {} \;
 " > /usr/bin/compila
+chmod ugo+rx /usr/bin/compila
+echo "Installation finished successfully!"
